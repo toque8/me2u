@@ -2,10 +2,10 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
   <title>me2u — приватный чат</title>
-  <!-- Простая иконка-самолётик -->
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%234f46e5'%3E%3Cpath d='M2.01 21L23 12 2.01 3 2 10l15 2-15 2z'/%3E%3C/svg%3E">
+  <!-- Динамическая фавиконка будет создана скриптом -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <style>
     * {
       margin: 0;
@@ -13,42 +13,105 @@
       box-sizing: border-box;
     }
 
+    /* ----- Переменные темы (тёмная по умолчанию) ----- */
     body {
+      --bg-primary: #0f0f0f;
+      --bg-secondary: #1f1f1f;
+      --bg-input: #2c2c2e;
+      --border-color: #2c2c2e;
+      --text-primary: #e4e4e7;
+      --text-secondary: #8e8e93;
+      --accent: #ff9f6e;
+      --accent-hover: #ffb08a;
+      --message-incoming-bg: #1f1f1f;
+      --message-outgoing-bg: #ff9f6e;
+      --message-outgoing-text: #0f0f0f;
+      --system-text: #8e8e93;
+      --scrollbar-thumb: #2c2c2e;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      background: #0f0f0f;
+      background: var(--bg-primary);
       height: 100vh;
       display: flex;
       flex-direction: column;
+      transition: background 0.2s, color 0.2s;
     }
 
-    /* Шапка чата */
+    body.light {
+      --bg-primary: #f5f5f7;
+      --bg-secondary: #ffffff;
+      --bg-input: #e9e9ef;
+      --border-color: #d9d9df;
+      --text-primary: #1c1c1e;
+      --text-secondary: #6c6c70;
+      --accent: #e67e22;
+      --accent-hover: #f39c12;
+      --message-incoming-bg: #ffffff;
+      --message-outgoing-bg: #e67e22;
+      --message-outgoing-text: #ffffff;
+      --system-text: #8e8e93;
+      --scrollbar-thumb: #c6c6c8;
+    }
+
+    /* ----- Общие стили ----- */
     .chat-header {
-      background: #1f1f1f;
-      padding: 12px 16px;
-      border-bottom: 1px solid #2c2c2e;
+      background: var(--bg-secondary);
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border-color);
       display: flex;
       align-items: center;
-      gap: 12px;
+      justify-content: space-between;
       flex-shrink: 0;
     }
-
     .chat-info {
       flex: 1;
     }
-
     .chat-name {
-      font-weight: 600;
-      color: white;
+      font-weight: 500;
       font-size: 17px;
-      margin-bottom: 2px;
+      color: var(--text-primary);
+      letter-spacing: -0.3px;
     }
-
     .chat-status {
-      font-size: 13px;
-      color: #8e8e93;
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 2px;
     }
-
-    /* Окно сообщений */
+    .theme-toggle {
+      background: none;
+      border: none;
+      font-size: 22px;
+      cursor: pointer;
+      padding: 8px;
+      border-radius: 50%;
+      color: var(--text-secondary);
+      transition: background 0.2s;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .theme-toggle:hover {
+      background: var(--bg-input);
+    }
+    .download-history {
+      background: none;
+      border: none;
+      font-size: 20px;
+      cursor: pointer;
+      padding: 8px;
+      border-radius: 50%;
+      color: var(--text-secondary);
+      margin-right: 8px;
+      width: 40px;
+      height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .download-history:hover {
+      background: var(--bg-input);
+    }
     .chat-messages {
       flex: 1;
       overflow-y: auto;
@@ -56,9 +119,8 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
-      background: #0f0f0f;
+      background: var(--bg-primary);
     }
-
     .message {
       max-width: 80%;
       padding: 8px 12px;
@@ -66,160 +128,759 @@
       font-size: 15px;
       line-height: 1.4;
       word-wrap: break-word;
+      position: relative;
     }
-
     .message.incoming {
-      background: #1f1f1f;
-      color: white;
+      background: var(--message-incoming-bg);
+      color: var(--text-primary);
       align-self: flex-start;
       border-bottom-left-radius: 4px;
     }
-
     .message.outgoing {
-      background: #4f46e5;
-      color: white;
+      background: var(--message-outgoing-bg);
+      color: var(--message-outgoing-text);
       align-self: flex-end;
       border-bottom-right-radius: 4px;
     }
-
+    .message .reactions {
+      display: flex;
+      gap: 8px;
+      margin-top: 6px;
+      font-size: 14px;
+    }
+    .message .reactions span {
+      cursor: pointer;
+      opacity: 0.6;
+      transition: opacity 0.1s;
+    }
+    .message .reactions span:hover {
+      opacity: 1;
+    }
+    .message .reactions .active-reaction {
+      opacity: 1;
+      font-weight: bold;
+    }
+    .file-message, .voice-message {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .file-message a, .voice-message audio {
+      max-width: 100%;
+    }
     .system-message {
       text-align: center;
       font-size: 12px;
-      color: #8e8e93;
-      margin: 8px 0;
+      color: var(--system-text);
+      margin: 8px auto;
       background: rgba(31, 31, 31, 0.6);
       padding: 4px 12px;
       border-radius: 16px;
       align-self: center;
       max-width: 90%;
     }
-
-    /* Панель ввода */
+    .typing-indicator {
+      font-size: 12px;
+      color: var(--system-text);
+      margin: 4px 16px;
+      font-style: italic;
+    }
     .input-area {
-      background: #1f1f1f;
-      padding: 12px 16px;
+      background: var(--bg-secondary);
+      padding: 10px 16px;
       display: flex;
       gap: 12px;
-      border-top: 1px solid #2c2c2e;
+      border-top: 1px solid var(--border-color);
       flex-shrink: 0;
+      align-items: center;
     }
-
     #message-input {
       flex: 1;
-      background: #2c2c2e;
+      background: var(--bg-input);
       border: none;
       border-radius: 24px;
       padding: 10px 16px;
-      color: white;
+      color: var(--text-primary);
       font-size: 16px;
       outline: none;
     }
-
     #message-input::placeholder {
-      color: #8e8e93;
+      color: var(--text-secondary);
     }
-
-    #message-input:disabled {
-      opacity: 0.5;
-    }
-
-    #send-button {
-      background: #4f46e5;
+    .circle-btn {
+      background: var(--accent);
       border: none;
-      border-radius: 24px;
-      padding: 0 20px;
-      color: white;
-      font-weight: 600;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       cursor: pointer;
-      transition: opacity 0.2s;
+      color: white;
+      font-size: 20px;
+      transition: background 0.2s, transform 0.1s;
+      flex-shrink: 0;
     }
-
-    #send-button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
+    .circle-btn:hover {
+      background: var(--accent-hover);
     }
-
-    /* Кнопка создания комнаты */
+    .circle-btn:active {
+      transform: scale(0.96);
+    }
+    .circle-btn.secondary {
+      background: var(--bg-input);
+      color: var(--text-primary);
+    }
+    .circle-btn.secondary:hover {
+      background: var(--border-color);
+    }
     .create-room-panel {
-      background: #1f1f1f;
-      margin: 16px;
-      padding: 20px;
-      border-radius: 16px;
-      text-align: center;
-      border: 1px solid #2c2c2e;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex: 1;
     }
-
-    .create-room-panel h3 {
-      margin-bottom: 16px;
-      color: white;
-      font-weight: 500;
-    }
-
-    .create-room-panel button {
-      background: #4f46e5;
+    .create-room-btn {
+      width: 80px;
+      height: 80px;
+      background: var(--accent);
       border: none;
-      border-radius: 24px;
-      padding: 12px 24px;
-      color: white;
-      font-weight: 600;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       cursor: pointer;
-      font-size: 16px;
-      transition: background 0.2s;
+      transition: background 0.2s, transform 0.1s;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
     }
-
-    .create-room-panel button:hover {
-      background: #6366f1;
+    .create-room-btn span {
+      font-size: 48px;
+      color: white;
+      font-weight: 300;
     }
-
-    .room-link {
-      margin-top: 16px;
-      background: #0f0f0f;
-      border-radius: 12px;
-      padding: 12px;
-      word-break: break-all;
-      font-size: 14px;
-      color: #8e8e93;
+    .create-room-btn:hover {
+      background: var(--accent-hover);
     }
-
-    .room-link a {
-      color: #4f46e5;
-      text-decoration: none;
-    }
-
     .hidden {
+      display: none !important;
+    }
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      object-fit: cover;
+      margin-right: 12px;
+      cursor: pointer;
+      border: 1px solid var(--border-color);
+    }
+    .avatar-upload {
       display: none;
     }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    /* Стили для медиа */
+    audio, video {
+      max-width: 100%;
+      border-radius: 12px;
+    }
+    /* Адаптивность */
+    @media (max-width: 600px) {
+      .chat-messages { padding: 12px; }
+      .message { max-width: 90%; }
+      .circle-btn { width: 40px; height: 40px; font-size: 18px; }
+      .create-room-btn { width: 70px; height: 70px; }
+      .create-room-btn span { font-size: 40px; }
+    }
   </style>
-  <!-- Подключаем PeerJS -->
-  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  <script src="app.js" defer></script>
 </head>
 <body>
   <div class="chat-header">
-    <div class="chat-info">
-      <div class="chat-name">me2u чат</div>
-      <div class="chat-status" id="status">⚡ Не в чате</div>
+    <div class="header-left">
+      <img id="avatar-img" class="avatar" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%238e8e93'%3E%3Cpath d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'/%3E%3C/svg%3E" alt="avatar">
+      <div class="chat-info">
+        <div class="chat-name">me2u</div>
+        <div class="chat-status" id="status">не в сети</div>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center;">
+      <button id="download-history-btn" class="download-history" title="Скачать историю">💾</button>
+      <button id="theme-toggle" class="theme-toggle">🌙</button>
     </div>
   </div>
 
   <div class="chat-messages" id="chat-log">
-    <div class="system-message">✨ Добро пожаловать!</div>
+    <!-- сообщения будут здесь -->
   </div>
 
-  <!-- Панель создания комнаты (показывается, когда пользователь не в чате) -->
+  <div id="typing-indicator" class="typing-indicator hidden"></div>
+
   <div id="create-panel" class="create-room-panel">
-    <h3>🔒 Приватный P2P чат</h3>
-    <button id="create-room-btn">➕ Создать комнату</button>
+    <button id="create-room-btn" class="create-room-btn"><span>+</span></button>
   </div>
 
-  <!-- Панель чата (скрыта, пока комната не создана или не подключена) -->
   <div id="chat-panel" class="input-area hidden">
     <input type="text" id="message-input" placeholder="Сообщение..." disabled>
-    <button id="send-button" disabled>→</button>
+    <button id="file-attach-btn" class="circle-btn secondary" title="Прикрепить файл">📎</button>
+    <button id="voice-record-btn" class="circle-btn secondary" title="Голосовое сообщение">🎙️</button>
+    <button id="send-button" class="circle-btn" title="Отправить">✈️</button>
   </div>
 
+  <input type="file" id="file-input" style="display:none" multiple>
+  <input type="file" id="avatar-input" accept="image/*" style="display:none">
+
   <script>
-    // Весь код будет в app.js
+    // ------------------- DOM элементы -------------------
+    const statusDiv = document.getElementById('status');
+    const chatLog = document.getElementById('chat-log');
+    const messageInput = document.getElementById('message-input');
+    const sendButton = document.getElementById('send-button');
+    const createPanel = document.getElementById('create-panel');
+    const chatPanel = document.getElementById('chat-panel');
+    const createRoomBtn = document.getElementById('create-room-btn');
+    const themeToggle = document.getElementById('theme-toggle');
+    const downloadBtn = document.getElementById('download-history-btn');
+    const fileAttachBtn = document.getElementById('file-attach-btn');
+    const voiceRecordBtn = document.getElementById('voice-record-btn');
+    const fileInput = document.getElementById('file-input');
+    const avatarImg = document.getElementById('avatar-img');
+    const avatarInput = document.getElementById('avatar-input');
+    const typingDiv = document.getElementById('typing-indicator');
+
+    // ------------------- Переменные состояния -------------------
+    let peer = null;
+    let currentConn = null;
+    let currentRoomId = null;
+    let isConnected = false;
+    let myPeerId = null;
+    let messagesHistory = [];     // массив объектов сообщений
+    let typingTimeout = null;
+    let isRecording = false;
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let currentTheme = 'dark';    // 'dark' or 'light'
+    let userAvatar = null;        // base64
+
+    // ------------------- Вспомогательные функции -------------------
+    function addSystemMessage(text) {
+      const sysDiv = document.createElement('div');
+      sysDiv.classList.add('system-message');
+      sysDiv.textContent = text;
+      chatLog.appendChild(sysDiv);
+      sysDiv.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      // не сохраняем системные в историю
+    }
+
+    function addMessageToUI(messageObj, isMy = false) {
+      const messageDiv = document.createElement('div');
+      messageDiv.classList.add('message');
+      messageDiv.classList.add(isMy ? 'outgoing' : 'incoming');
+      messageDiv.setAttribute('data-id', messageObj.id);
+      
+      // контент в зависимости от типа
+      if (messageObj.type === 'text') {
+        messageDiv.textContent = messageObj.text;
+      } else if (messageObj.type === 'file') {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'file-message';
+        const link = document.createElement('a');
+        link.href = messageObj.url;
+        link.download = messageObj.name;
+        link.textContent = `📎 ${messageObj.name}`;
+        link.target = '_blank';
+        wrapper.appendChild(link);
+        messageDiv.appendChild(wrapper);
+      } else if (messageObj.type === 'voice') {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'voice-message';
+        const audio = document.createElement('audio');
+        audio.controls = true;
+        audio.src = messageObj.url;
+        wrapper.appendChild(audio);
+        messageDiv.appendChild(wrapper);
+      }
+      
+      // реакции
+      const reactionsDiv = document.createElement('div');
+      reactionsDiv.className = 'reactions';
+      const likeSpan = document.createElement('span');
+      likeSpan.textContent = '👍';
+      likeSpan.dataset.reaction = 'like';
+      const dislikeSpan = document.createElement('span');
+      dislikeSpan.textContent = '👎';
+      dislikeSpan.dataset.reaction = 'dislike';
+      const heartSpan = document.createElement('span');
+      heartSpan.textContent = '❤️';
+      heartSpan.dataset.reaction = 'heart';
+      
+      const addReactionHandler = (span, reactionType) => {
+        span.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (currentConn && currentConn.open && isConnected) {
+            currentConn.send({
+              type: 'reaction',
+              messageId: messageObj.id,
+              reaction: reactionType
+            });
+            // локально обновить отображение
+            updateLocalReaction(messageObj.id, reactionType, true);
+          } else {
+            addSystemMessage('Нет соединения для отправки реакции');
+          }
+        });
+      };
+      addReactionHandler(likeSpan, 'like');
+      addReactionHandler(dislikeSpan, 'dislike');
+      addReactionHandler(heartSpan, 'heart');
+      
+      reactionsDiv.appendChild(likeSpan);
+      reactionsDiv.appendChild(dislikeSpan);
+      reactionsDiv.appendChild(heartSpan);
+      messageDiv.appendChild(reactionsDiv);
+      
+      // отобразить уже полученные реакции из объекта
+      if (messageObj.reactions) {
+        for (const [reaction, count] of Object.entries(messageObj.reactions)) {
+          if (count > 0) {
+            const span = reactionsDiv.querySelector(`[data-reaction="${reaction}"]`);
+            if (span) span.classList.add('active-reaction');
+          }
+        }
+      }
+      
+      chatLog.appendChild(messageDiv);
+      messageDiv.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+
+    function updateLocalReaction(messageId, reactionType, isActive) {
+      const msgElement = document.querySelector(`.message[data-id="${messageId}"]`);
+      if (msgElement) {
+        const reactionSpan = msgElement.querySelector(`.reactions span[data-reaction="${reactionType}"]`);
+        if (reactionSpan) {
+          if (isActive) reactionSpan.classList.add('active-reaction');
+          else reactionSpan.classList.remove('active-reaction');
+        }
+      }
+      // обновить в истории
+      const msg = messagesHistory.find(m => m.id === messageId);
+      if (msg) {
+        if (!msg.reactions) msg.reactions = {};
+        if (isActive) msg.reactions[reactionType] = (msg.reactions[reactionType] || 0) + 1;
+        else msg.reactions[reactionType] = Math.max(0, (msg.reactions[reactionType] || 0) - 1);
+        saveHistoryToLocal();
+      }
+    }
+
+    function saveHistoryToLocal() {
+      if (currentRoomId) {
+        localStorage.setItem(`chat_history_${currentRoomId}`, JSON.stringify(messagesHistory));
+      }
+    }
+
+    function loadHistoryFromLocal() {
+      if (currentRoomId) {
+        const saved = localStorage.getItem(`chat_history_${currentRoomId}`);
+        if (saved) {
+          try {
+            messagesHistory = JSON.parse(saved);
+            // очистить UI и перерисовать
+            while (chatLog.firstChild) chatLog.removeChild(chatLog.firstChild);
+            messagesHistory.forEach(msg => {
+              addMessageToUI(msg, msg.senderId === myPeerId);
+            });
+          } catch(e) { console.warn(e); }
+        }
+      }
+    }
+
+    function addMessageToHistory(messageObj) {
+      messagesHistory.push(messageObj);
+      saveHistoryToLocal();
+    }
+
+    function sendTyping() {
+      if (currentConn && currentConn.open && isConnected) {
+        currentConn.send({ type: 'typing' });
+      }
+    }
+
+    function showTypingFromRemote() {
+      typingDiv.classList.remove('hidden');
+      typingDiv.textContent = 'собеседник печатает...';
+      if (typingTimeout) clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        typingDiv.classList.add('hidden');
+      }, 2000);
+    }
+
+    // ------------------- Отправка сообщений -------------------
+    function sendTextMessage(text) {
+      if (text.trim() && currentConn && currentConn.open && isConnected) {
+        const msgId = Date.now() + '-' + Math.random().toString(36);
+        const msgObj = {
+          id: msgId,
+          type: 'text',
+          text: text,
+          senderId: myPeerId,
+          timestamp: Date.now(),
+          reactions: {}
+        };
+        currentConn.send({ type: 'message', data: msgObj });
+        addMessageToUI(msgObj, true);
+        addMessageToHistory(msgObj);
+        messageInput.value = '';
+      } else if (!isConnected) {
+        addSystemMessage('Нет соединения с собеседником');
+      }
+    }
+
+    function sendFile(file) {
+      if (!currentConn || !currentConn.open || !isConnected) {
+        addSystemMessage('Нет соединения');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const arrayBuffer = reader.result;
+        const msgId = Date.now() + '-' + Math.random().toString(36);
+        const msgObj = {
+          id: msgId,
+          type: 'file',
+          name: file.name,
+          mime: file.type,
+          data: arrayBuffer,
+          senderId: myPeerId,
+          timestamp: Date.now(),
+          reactions: {}
+        };
+        currentConn.send({ type: 'file_transfer', data: msgObj });
+        // локально создать ссылку для отображения
+        const url = URL.createObjectURL(file);
+        const displayObj = { ...msgObj, url: url };
+        addMessageToUI(displayObj, true);
+        addMessageToHistory(displayObj);
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function sendVoice(blob) {
+      if (!currentConn || !currentConn.open || !isConnected) return;
+      const msgId = Date.now() + '-' + Math.random().toString(36);
+      const reader = new FileReader();
+      reader.onload = () => {
+        const arrayBuffer = reader.result;
+        const msgObj = {
+          id: msgId,
+          type: 'voice',
+          data: arrayBuffer,
+          senderId: myPeerId,
+          timestamp: Date.now(),
+          reactions: {}
+        };
+        currentConn.send({ type: 'voice_transfer', data: msgObj });
+        const url = URL.createObjectURL(blob);
+        const displayObj = { ...msgObj, url: url };
+        addMessageToUI(displayObj, true);
+        addMessageToHistory(displayObj);
+      };
+      reader.readAsArrayBuffer(blob);
+    }
+
+    // ------------------- PeerJS и соединение -------------------
+    function createRoom() {
+      currentRoomId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 8);
+      const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoomId}`;
+      addSystemMessage(`Ваша ссылка-приглашение: ${inviteUrl}`);
+      navigator.clipboard.writeText(inviteUrl).then(() => {
+        addSystemMessage('Ссылка скопирована в буфер обмена');
+      }).catch(() => addSystemMessage('Скопируйте ссылку вручную'));
+      
+      statusDiv.textContent = `комната: ${currentRoomId.substring(0,8)}...`;
+      createPanel.classList.add('hidden');
+      chatPanel.classList.remove('hidden');
+      
+      peer = new Peer(currentRoomId);
+      
+      peer.on('open', (id) => {
+        myPeerId = id;
+        addSystemMessage(`Комната создана. Ваш ID: ${id.substring(0,8)}...`);
+        loadHistoryFromLocal();
+      });
+      
+      peer.on('connection', (conn) => {
+        addSystemMessage('Собеседник подключился');
+        setupConnection(conn);
+        isConnected = true;
+        setControlsEnabled(true);
+        statusDiv.textContent = 'соединено';
+      });
+      
+      peer.on('error', (err) => {
+        console.error(err);
+        addSystemMessage(`Ошибка: ${err.type}`);
+      });
+    }
+
+    function joinRoom(roomId) {
+      currentRoomId = roomId;
+      statusDiv.textContent = 'подключение...';
+      createPanel.classList.add('hidden');
+      chatPanel.classList.remove('hidden');
+      
+      peer = new Peer();
+      peer.on('open', (id) => {
+        myPeerId = id;
+        addSystemMessage(`Ваш ID: ${id.substring(0,8)}...`);
+        const conn = peer.connect(roomId);
+        setupConnection(conn);
+        loadHistoryFromLocal();
+      });
+      peer.on('error', (err) => {
+        console.error(err);
+        addSystemMessage(`Ошибка подключения: ${err.type}`);
+        if (err.type === 'peer-unavailable') {
+          addSystemMessage('Комната не найдена. Проверьте ссылку.');
+          setTimeout(() => window.location.href = window.location.origin, 3000);
+        }
+      });
+    }
+
+    function setupConnection(conn) {
+      currentConn = conn;
+      conn.on('open', () => {
+        addSystemMessage('Соединение установлено. Можно общаться.');
+        isConnected = true;
+        setControlsEnabled(true);
+        statusDiv.textContent = 'соединено';
+      });
+      conn.on('data', (data) => {
+        if (data.type === 'message') {
+          const msg = data.data;
+          if (msg.senderId !== myPeerId) {
+            if (msg.type === 'text') {
+              addMessageToUI(msg, false);
+              addMessageToHistory(msg);
+            } else if (msg.type === 'file') {
+              const blob = new Blob([msg.data], { type: msg.mime });
+              const url = URL.createObjectURL(blob);
+              const displayMsg = { ...msg, url: url };
+              addMessageToUI(displayMsg, false);
+              addMessageToHistory(displayMsg);
+            } else if (msg.type === 'voice') {
+              const blob = new Blob([msg.data], { type: 'audio/webm' });
+              const url = URL.createObjectURL(blob);
+              const displayMsg = { ...msg, url: url };
+              addMessageToUI(displayMsg, false);
+              addMessageToHistory(displayMsg);
+            }
+          }
+        } else if (data.type === 'reaction') {
+          updateLocalReaction(data.messageId, data.reaction, true);
+          // также обновить в истории
+          const msg = messagesHistory.find(m => m.id === data.messageId);
+          if (msg) {
+            if (!msg.reactions) msg.reactions = {};
+            msg.reactions[data.reaction] = (msg.reactions[data.reaction] || 0) + 1;
+            saveHistoryToLocal();
+          }
+        } else if (data.type === 'typing') {
+          showTypingFromRemote();
+        } else if (data.type === 'file_transfer' || data.type === 'voice_transfer') {
+          // аналогично сообщению
+          const msg = data.data;
+          if (msg.senderId !== myPeerId) {
+            if (data.type === 'file_transfer') {
+              const blob = new Blob([msg.data], { type: msg.mime });
+              const url = URL.createObjectURL(blob);
+              const displayMsg = { ...msg, url: url };
+              addMessageToUI(displayMsg, false);
+              addMessageToHistory(displayMsg);
+            } else if (data.type === 'voice_transfer') {
+              const blob = new Blob([msg.data], { type: 'audio/webm' });
+              const url = URL.createObjectURL(blob);
+              const displayMsg = { ...msg, url: url };
+              addMessageToUI(displayMsg, false);
+              addMessageToHistory(displayMsg);
+            }
+          }
+        }
+      });
+      conn.on('close', () => {
+        addSystemMessage('Собеседник отключился');
+        isConnected = false;
+        setControlsEnabled(false);
+        statusDiv.textContent = 'не в сети';
+      });
+      conn.on('error', (err) => {
+        console.error(err);
+        addSystemMessage('Ошибка соединения');
+      });
+    }
+
+    function setControlsEnabled(enabled) {
+      messageInput.disabled = !enabled;
+      sendButton.disabled = !enabled;
+      fileAttachBtn.disabled = !enabled;
+      voiceRecordBtn.disabled = !enabled;
+      if (enabled) messageInput.focus();
+    }
+
+    // ------------------- Голосовые сообщения -------------------
+    async function startVoiceRecording() {
+      if (isRecording) return;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+        mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+        mediaRecorder.onstop = () => {
+          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+          sendVoice(audioBlob);
+          stream.getTracks().forEach(track => track.stop());
+          isRecording = false;
+          voiceRecordBtn.style.background = 'var(--accent)';
+        };
+        mediaRecorder.start();
+        isRecording = true;
+        voiceRecordBtn.style.background = 'red';
+        addSystemMessage('Запись... нажмите ещё раз для отправки');
+        voiceRecordBtn.onclick = stopVoiceRecording;
+      } catch(e) {
+        addSystemMessage('Не удалось получить доступ к микрофону');
+      }
+    }
+    function stopVoiceRecording() {
+      if (mediaRecorder && isRecording) {
+        mediaRecorder.stop();
+        voiceRecordBtn.onclick = startVoiceRecording;
+        voiceRecordBtn.style.background = 'var(--accent)';
+      }
+    }
+    function toggleVoiceRecording() {
+      if (!isConnected) {
+        addSystemMessage('Нет соединения');
+        return;
+      }
+      if (!isRecording) startVoiceRecording();
+      else stopVoiceRecording();
+    }
+
+    // ------------------- Тема, аватар, экспорт -------------------
+    function setTheme(theme) {
+      currentTheme = theme;
+      if (theme === 'light') {
+        document.body.classList.add('light');
+        themeToggle.textContent = '☀️';
+      } else {
+        document.body.classList.remove('light');
+        themeToggle.textContent = '🌙';
+      }
+      // обновить фавиконку
+      const faviconColor = theme === 'dark' ? '#ff9f6e' : '#e67e22';
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="${faviconColor}"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`;
+      const favicon = document.querySelector("link[rel*='icon']") || document.createElement('link');
+      favicon.type = 'image/svg+xml';
+      favicon.rel = 'icon';
+      favicon.href = 'data:image/svg+xml,' + encodeURIComponent(svg);
+      document.head.appendChild(favicon);
+    }
+    function downloadHistory() {
+      if (messagesHistory.length === 0) {
+        addSystemMessage('Нет сообщений для сохранения');
+        return;
+      }
+      let content = `me2u чат — история ${new Date().toLocaleString()}\n\n`;
+      messagesHistory.forEach(msg => {
+        const sender = msg.senderId === myPeerId ? 'Вы' : 'Собеседник';
+        let text = '';
+        if (msg.type === 'text') text = msg.text;
+        else if (msg.type === 'file') text = `[Файл: ${msg.name}]`;
+        else if (msg.type === 'voice') text = `[Голосовое сообщение]`;
+        content += `[${new Date(msg.timestamp).toLocaleTimeString()}] ${sender}: ${text}\n`;
+      });
+      const blob = new Blob([content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `me2u_history_${currentRoomId}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+    function handleAvatarUpload(e) {
+      const file = e.target.files[0];
+      if (file && file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const size = Math.min(img.width, img.height);
+            canvas.width = 100;
+            canvas.height = 100;
+            const ctx = canvas.getContext('2d');
+            ctx.beginPath();
+            ctx.arc(50, 50, 50, 0, 2 * Math.PI);
+            ctx.clip();
+            ctx.drawImage(img, (img.width - size)/2, (img.height - size)/2, size, size, 0, 0, 100, 100);
+            const avatarUrl = canvas.toDataURL();
+            userAvatar = avatarUrl;
+            avatarImg.src = avatarUrl;
+            localStorage.setItem('userAvatar', avatarUrl);
+          };
+          img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+    function loadAvatarFromStorage() {
+      const saved = localStorage.getItem('userAvatar');
+      if (saved) {
+        userAvatar = saved;
+        avatarImg.src = saved;
+      }
+    }
+
+    // ------------------- Инициализация -------------------
+    function init() {
+      loadAvatarFromStorage();
+      const urlParams = new URLSearchParams(window.location.search);
+      const roomParam = urlParams.get('room');
+      if (roomParam) {
+        joinRoom(roomParam);
+      } else {
+        createPanel.classList.remove('hidden');
+        chatPanel.classList.add('hidden');
+      }
+      
+      createRoomBtn.addEventListener('click', createRoom);
+      sendButton.addEventListener('click', () => sendTextMessage(messageInput.value));
+      messageInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !sendButton.disabled) sendTextMessage(messageInput.value);
+        if (isConnected) sendTyping();
+      });
+      messageInput.addEventListener('input', () => { if (isConnected) sendTyping(); });
+      fileAttachBtn.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) {
+          for (let file of e.target.files) sendFile(file);
+          fileInput.value = '';
+        }
+      });
+      voiceRecordBtn.addEventListener('click', toggleVoiceRecording);
+      themeToggle.addEventListener('click', () => {
+        setTheme(currentTheme === 'dark' ? 'light' : 'dark');
+      });
+      downloadBtn.addEventListener('click', downloadHistory);
+      avatarImg.addEventListener('click', () => avatarInput.click());
+      avatarInput.addEventListener('change', handleAvatarUpload);
+      
+      setTheme('dark');
+    }
+    init();
   </script>
 </body>
 </html>
