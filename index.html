@@ -4,9 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
   <title>me2u — приватный чат</title>
-  <!-- PeerJS -->
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  <!-- Trystero -->
   <script type="importmap">
     {
       "imports": {
@@ -14,7 +12,6 @@
       }
     }
   </script>
-  <!-- uPeerJS -->
   <script src="https://cdn.jsdelivr.net/npm/upeerjs@latest/dist/upeerjs.min.js"></script>
   <style>
     * {
@@ -23,7 +20,6 @@
       box-sizing: border-box;
     }
 
-    /* ----- Переменные темы (тёмная по умолчанию) ----- */
     body {
       --bg-primary: #0f0f0f;
       --bg-secondary: #1f1f1f;
@@ -60,7 +56,6 @@
       --system-text: #1c1c1e;
     }
 
-    /* ----- Шапка ----- */
     .chat-header {
       background: var(--bg-secondary);
       padding: 10px 16px;
@@ -122,7 +117,6 @@
       background: var(--bg-input);
     }
 
-    /* ----- Область сообщений ----- */
     .chat-messages {
       flex: 1;
       overflow-y: auto;
@@ -196,7 +190,6 @@
       font-style: italic;
     }
 
-    /* ----- Панель ввода (адаптивная) ----- */
     .input-area {
       background: var(--bg-secondary);
       padding: 8px 12px;
@@ -208,7 +201,7 @@
     }
     #message-input {
       flex: 1;
-      min-width: 0; /* важно для сжатия */
+      min-width: 0;
       background: var(--bg-input);
       border: none;
       border-radius: 24px;
@@ -220,7 +213,6 @@
     #message-input::placeholder {
       color: var(--text-secondary);
     }
-    /* Кнопки с серым фоном и персиковой иконкой */
     .circle-btn {
       background: var(--bg-input);
       border: none;
@@ -247,7 +239,6 @@
     .circle-btn:active {
       transform: scale(0.96);
     }
-    /* Кнопка создания комнаты */
     .create-room-panel {
       display: flex;
       justify-content: center;
@@ -301,7 +292,6 @@
       border-radius: 12px;
     }
 
-    /* Мобильные стили */
     @media (max-width: 600px) {
       .chat-messages { padding: 12px; }
       .message { max-width: 90%; }
@@ -361,7 +351,6 @@
   <input type="file" id="avatar-input" accept="image/*" style="display:none">
 
   <script type="module">
-    // ------------------- DOM элементы -------------------
     const statusDiv = document.getElementById('status');
     const chatLog = document.getElementById('chat-log');
     const messageInput = document.getElementById('message-input');
@@ -378,7 +367,6 @@
     const avatarInput = document.getElementById('avatar-input');
     const typingDiv = document.getElementById('typing-indicator');
 
-    // ------------------- Состояние -------------------
     let currentRoomId = null;
     let isConnected = false;
     let myPeerId = null;
@@ -391,14 +379,12 @@
     let myAvatar = null;
     let peerAvatar = null;
     
-    // Переменные для разных стратегий подключения
-    let currentStrategy = null; // 'peerjs', 'trystero', 'direct', 'upeerjs'
+    let currentStrategy = null;
     let currentConn = null;
     let sendMessageCallback = null;
     let trysteroRoom = null;
     let upeerjsPeer = null;
     
-    // Список сигнальных серверов PeerJS для fallback
     const PEER_SERVERS = [
       { host: '0.peerjs.com', port: 443, secure: true, path: '/' },
       { host: 'peerjs-server.herokuapp.com', port: 443, secure: true, path: '/' },
@@ -407,11 +393,39 @@
     ];
     let currentServerIndex = 0;
     
-    // Флаги для отслеживания попыток подключения
-    let connectionAttempts = 0;
-    let maxAttempts = 4;
+    const ICE_CONFIG = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun.cloudflare.com:3478' },
+        { 
+          urls: 'turn:turn.anyfirewall.com:443?transport=tcp',
+          username: 'webrtc',
+          credential: 'webrtc'
+        },
+        { 
+          urls: 'turn:turn2.anyfirewall.com:443?transport=tcp',
+          username: 'webrtc',
+          credential: 'webrtc'
+        },
+        { 
+          urls: 'turn:turn.merptv.com:443?transport=tcp',
+          username: 'webrtc',
+          credential: 'webrtc'
+        },
+        { 
+          urls: 'turn:freeturn.net:5349?transport=tcp',
+          username: 'free',
+          credential: 'free'
+        },
+        { 
+          urls: 'turn:freeturn.net:5349?transport=udp',
+          username: 'free',
+          credential: 'free'
+        }
+      ]
+    };
 
-    // ------------------- Вспомогательные UI -------------------
     function addSystemMessage(text) {
       const sysDiv = document.createElement('div');
       sysDiv.classList.add('system-message');
@@ -491,7 +505,6 @@
       saveHistoryToLocal();
     }
 
-    // ------------------- Отправка сообщений (общая) -------------------
     async function sendTextMessage(text) {
       if (text.trim() && currentConn && isConnected) {
         const msgId = Date.now() + '-' + Math.random().toString(36);
@@ -504,7 +517,6 @@
           isMy: true
         };
         
-        // Отправляем в зависимости от стратегии
         if (currentStrategy === 'peerjs' && currentConn && currentConn.open) {
           currentConn.send({ type: 'message', data: msgObj });
         } else if (currentStrategy === 'trystero' && sendMessageCallback) {
@@ -628,27 +640,32 @@
       if (enabled) messageInput.focus();
     }
 
-    // ------------------- Стратегия 1: PeerJS с переключением серверов -------------------
     function tryPeerJSServer(roomId, isHost, onSuccess, onFail) {
-      const config = PEER_SERVERS[currentServerIndex];
-      addSystemMessage(`Пробуем подключение через PeerJS (сервер: ${config.host})...`);
+      const signalConfig = PEER_SERVERS[currentServerIndex];
+      addSystemMessage(`Пробуем PeerJS (сервер: ${signalConfig.host}) с TURN...`);
+      
+      // Объединяем сигнальный сервер и ICE конфигурацию
+      const peerConfig = {
+        ...signalConfig,
+        config: ICE_CONFIG
+      };
       
       let peer;
       if (isHost) {
-        peer = new Peer(roomId, config);
+        peer = new Peer(roomId, peerConfig);
       } else {
-        peer = new Peer(config);
+        peer = new Peer(peerConfig);
       }
       
       const timeout = setTimeout(() => {
         peer.destroy();
         onFail();
-      }, 10000);
+      }, 15000);
       
       peer.on('open', (id) => {
         clearTimeout(timeout);
         myPeerId = id;
-        addSystemMessage(`PeerJS подключен (${config.host})`);
+        addSystemMessage(`PeerJS подключён (${signalConfig.host})`);
         
         if (isHost) {
           peer.on('connection', (conn) => {
@@ -669,7 +686,7 @@
       
       peer.on('error', (err) => {
         clearTimeout(timeout);
-        console.warn(`PeerJS error (${config.host}):`, err);
+        console.warn(`PeerJS error (${signalConfig.host}):`, err);
         peer.destroy();
         onFail();
       });
@@ -679,7 +696,7 @@
         currentConn = conn;
         
         conn.on('open', () => {
-          addSystemMessage('Соединение установлено');
+          addSystemMessage('PeerJS соединение установлено');
           isConnected = true;
           setControlsEnabled(true);
           statusDiv.textContent = 'соединено';
@@ -750,9 +767,8 @@
       }
     }
 
-    // ------------------- Стратегия 2: Trystero (BitTorrent) -------------------
     async function tryTrystero(roomId, isHost, onSuccess, onFail) {
-      addSystemMessage('Пробуем подключение через Trystero (BitTorrent)...');
+      addSystemMessage('Пробуем Trystero (BitTorrent) с TURN...');
       
       try {
         const { joinRoom } = await import('trystero');
@@ -762,7 +778,8 @@
             'wss://tracker.openwebtorrent.com',
             'wss://tracker.webtorrent.dev',
             'wss://tracker.btorrent.xyz'
-          ]
+          ],
+          rtcConfig: ICE_CONFIG   
         };
         
         const room = joinRoom(config, roomId, 'torrent');
@@ -772,7 +789,7 @@
         sendMessageCallback = send;
         
         onMessage((data, peerId) => {
-          if (data.type === 'message') {
+          if (data && data.type === 'message') {
             const msg = data.data;
             if (msg.senderId !== myPeerId) {
               const incomingMsg = { ...msg, isMy: false };
@@ -781,9 +798,9 @@
                 addMessageToHistory(incomingMsg);
               }
             }
-          } else if (data.type === 'typing') {
+          } else if (data && data.type === 'typing') {
             showTypingFromRemote();
-          } else if (data.type === 'file_transfer' || data.type === 'voice_transfer') {
+          } else if (data && (data.type === 'file_transfer' || data.type === 'voice_transfer')) {
             const msg = data.data;
             if (msg.senderId !== myPeerId) {
               const incomingMsg = { ...msg, isMy: false };
@@ -801,7 +818,7 @@
                 addMessageToHistory(displayMsg);
               }
             }
-          } else if (data.type === 'avatar') {
+          } else if (data && data.type === 'avatar') {
             peerAvatar = data.data;
             const savedMessages = [...messagesHistory];
             while (chatLog.firstChild) chatLog.removeChild(chatLog.firstChild);
@@ -829,11 +846,8 @@
           peerAvatar = null;
         });
         
-        // Таймаут 15 секунд
         setTimeout(() => {
-          if (!isConnected) {
-            onFail();
-          }
+          if (!isConnected) onFail();
         }, 15000);
         
       } catch(e) {
@@ -842,21 +856,21 @@
       }
     }
 
-    // ------------------- Стратегия 3: uPeerJS (MQTT) -------------------
     async function tryUPeerJS(roomId, isHost, onSuccess, onFail) {
-      addSystemMessage('Пробуем подключение через uPeerJS (MQTT)...');
+      addSystemMessage('Пробуем uPeerJS (MQTT) с TURN...');
       
       try {
-        // Динамически импортируем uPeerJS
         const UPeer = window.UPeer;
-        if (!UPeer) {
-          throw new Error('uPeerJS not loaded');
-        }
+        if (!UPeer) throw new Error('uPeerJS not loaded');
         
-        const mqttBroker = 'wss://test.mosquitto.org:8081'; // публичный MQTT брокер
+        const mqttBroker = 'wss://test.mosquitto.org:8081';
+        const options = {
+          broker: mqttBroker,
+          rtcConfig: ICE_CONFIG
+        };
         
         if (isHost) {
-          upeerjsPeer = new UPeer(roomId, { broker: mqttBroker });
+          upeerjsPeer = new UPeer(roomId, options);
           upeerjsPeer.on('connection', (conn) => {
             setupUPeerJSConnection(conn);
             isConnected = true;
@@ -866,7 +880,7 @@
             onSuccess();
           });
         } else {
-          upeerjsPeer = new UPeer({ broker: mqttBroker });
+          upeerjsPeer = new UPeer(options);
           upeerjsPeer.on('open', () => {
             const conn = upeerjsPeer.connect(roomId);
             setupUPeerJSConnection(conn);
@@ -939,9 +953,7 @@
         }
         
         setTimeout(() => {
-          if (!isConnected) {
-            onFail();
-          }
+          if (!isConnected) onFail();
         }, 15000);
         
       } catch(e) {
@@ -950,10 +962,7 @@
       }
     }
 
-    // ------------------- Главная функция подключения с перебором стратегий -------------------
     async function connectWithFallback(roomId, isHost) {
-      connectionAttempts = 0;
-      
       const strategies = [
         { name: 'peerjs', func: (cb) => tryPeerJSServer(roomId, isHost, cb, () => nextStrategy()) },
         { name: 'trystero', func: (cb) => tryTrystero(roomId, isHost, cb, () => nextStrategy()) },
@@ -967,21 +976,19 @@
         if (currentIndex < strategies.length) {
           addSystemMessage(`Переключаемся на стратегию: ${strategies[currentIndex].name}...`);
           strategies[currentIndex].func(() => {
-            addSystemMessage(`✅ Успешно подключено через ${strategies[currentIndex].name}`);
+            addSystemMessage(`Успешно подключено через ${strategies[currentIndex].name}`);
           });
         } else {
-          addSystemMessage('❌ Не удалось подключиться ни одной стратегией. Попробуйте перезагрузить страницу.');
+          addSystemMessage('Не удалось подключиться ни одной стратегией. Попробуйте перезагрузить страницу.');
           statusDiv.textContent = 'ошибка подключения';
         }
       }
       
-      // Запускаем первую стратегию
       strategies[0].func(() => {
-        addSystemMessage(`✅ Успешно подключено через ${strategies[0].name}`);
+        addSystemMessage(`Успешно подключено через ${strategies[0].name}`);
       });
     }
 
-    // ------------------- Создание комнаты (хост) -------------------
     function createRoom() {
       currentRoomId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 8);
       const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoomId}`;
@@ -998,7 +1005,6 @@
       connectWithFallback(currentRoomId, true);
     }
 
-    // ------------------- Подключение к комнате (гость) -------------------
     function joinRoom(roomId) {
       currentRoomId = roomId;
       statusDiv.textContent = 'подключение...';
@@ -1009,7 +1015,6 @@
       connectWithFallback(roomId, false);
     }
 
-    // ------------------- Голосовые сообщения -------------------
     async function startVoiceRecording() {
       if (isRecording) return;
       try {
@@ -1051,7 +1056,6 @@
       else stopVoiceRecording();
     }
 
-    // ------------------- Тема, аватар, экспорт -------------------
     function setTheme(theme) {
       currentTheme = theme;
       if (theme === 'light') {
@@ -1129,7 +1133,6 @@
       }
     }
 
-    // ------------------- Инициализация -------------------
     function init() {
       loadAvatarFromStorage();
       const urlParams = new URLSearchParams(window.location.search);
