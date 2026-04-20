@@ -1,4 +1,3 @@
-// DOM элементы
 const statusDiv = document.getElementById('status');
 const chatLog = document.getElementById('chat-log');
 const messageInput = document.getElementById('message-input');
@@ -6,13 +5,11 @@ const sendButton = document.getElementById('send-button');
 const createPanel = document.getElementById('create-panel');
 const chatPanel = document.getElementById('chat-panel');
 
-// Переменные для WebRTC
 let peer = null;
 let currentConn = null;
 let currentRoomId = null;
 let isConnected = false;
 
-// Функции UI
 function addMessageToChat(text, isMyMessage = false) {
   const messageDiv = document.createElement('div');
   messageDiv.classList.add('message');
@@ -46,12 +43,11 @@ function showCreatePanel() {
   chatPanel.classList.add('hidden');
   setControlsEnabled(false);
   isConnected = false;
-  statusDiv.innerHTML = '⚡ Не в чате';
+  statusDiv.innerHTML = 'не в чате';
 }
 
-// Функция для создания комнаты
 async function createRoom() {
-  addSystemMessage('🔄 Создание комнаты...');
+  addSystemMessage('Создание комнаты...');
   
   // Генерируем уникальный ID комнаты
   currentRoomId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
@@ -60,27 +56,26 @@ async function createRoom() {
   peer = new Peer(currentRoomId);
   
   peer.on('open', (id) => {
-    addSystemMessage(`✅ Комната создана! ID: ${id}`);
+    addSystemMessage(`Комната создана! ID: ${id}`);
     statusDiv.innerHTML = `🟢 Комната: ${id.substring(0, 8)}...`;
     
     // Генерируем ссылку-приглашение
     const inviteLink = `${window.location.origin}${window.location.pathname}?room=${id}`;
-    addSystemMessage(`🔗 Ссылка-приглашение: ${inviteLink}`);
-    addSystemMessage('📋 Отправьте эту ссылку другу. Как только он подключится, начнётся чат!');
+    addSystemMessage(`Ссылка-приглашение: ${inviteLink}`);
+    addSystemMessage('Отправьте эту ссылку другу. Как только он подключится, начнётся чат!');
     
     // Копируем ссылку в буфер обмена
     navigator.clipboard.writeText(inviteLink).then(() => {
-      addSystemMessage('✅ Ссылка скопирована в буфер обмена!');
+      addSystemMessage('Ссылка скопирована в буфер обмена!');
     }).catch(() => {
-      addSystemMessage('⚠️ Не удалось скопировать ссылку, скопируйте вручную');
+      addSystemMessage('Не удалось скопировать ссылку, скопируйте вручную');
     });
     
-    // Показываем панель чата
     showChatPanel();
   });
   
   peer.on('connection', (conn) => {
-    addSystemMessage('👤 Друг подключился!');
+    addSystemMessage('Друг подключился!');
     setupConnection(conn);
     isConnected = true;
     setControlsEnabled(true);
@@ -89,24 +84,23 @@ async function createRoom() {
   
   peer.on('error', (err) => {
     console.error('Peer error:', err);
-    addSystemMessage(`❌ Ошибка: ${err.type}`);
+    addSystemMessage(`Ошибка: ${err.type}`);
     if (err.type === 'peer-unavailable') {
-      addSystemMessage('⚠️ Друг не найден. Убедитесь, что он перешёл по правильной ссылке.');
+      addSystemMessage('Друг не найден. Убедитесь, что он перешёл по правильной ссылке.');
     }
   });
 }
 
-// Функция для подключения к существующей комнате
 function joinRoom(roomId) {
-  addSystemMessage(`🔗 Подключение к комнате ${roomId}...`);
+  addSystemMessage(`Подключение к комнате ${roomId}...`);
   statusDiv.innerHTML = `🟡 Подключение...`;
   
   // Создаём Peer с случайным ID
   peer = new Peer();
   
   peer.on('open', (myId) => {
-    addSystemMessage(`✅ Ваш ID: ${myId}`);
-    addSystemMessage(`🔗 Подключаемся к ${roomId}...`);
+    addSystemMessage(`Ваш ID: ${myId}`);
+    addSystemMessage(`Подключаемся к ${roomId}...`);
     
     // Подключаемся к хосту
     const conn = peer.connect(roomId);
@@ -115,9 +109,9 @@ function joinRoom(roomId) {
   
   peer.on('error', (err) => {
     console.error('Peer error:', err);
-    addSystemMessage(`❌ Ошибка: ${err.type}`);
+    addSystemMessage(`Ошибка: ${err.type}`);
     if (err.type === 'peer-unavailable') {
-      addSystemMessage('⚠️ Комната не найдена. Проверьте ссылку.');
+      addSystemMessage('Комната не найдена. Проверьте ссылку.');
       setTimeout(() => {
         window.location.href = window.location.origin;
       }, 3000);
@@ -125,12 +119,11 @@ function joinRoom(roomId) {
   });
 }
 
-// Настройка соединения
 function setupConnection(conn) {
   currentConn = conn;
   
   conn.on('open', () => {
-    addSystemMessage('✅ Соединение установлено! Можно общаться.');
+    addSystemMessage('Соединение установлено! Можно общаться.');
     isConnected = true;
     setControlsEnabled(true);
     statusDiv.innerHTML = '🟢 Соединено!';
@@ -146,20 +139,19 @@ function setupConnection(conn) {
   });
   
   conn.on('close', () => {
-    addSystemMessage('🔌 Соединение разорвано.');
+    addSystemMessage('Соединение разорвано.');
     isConnected = false;
     setControlsEnabled(false);
-    statusDiv.innerHTML = '⚡ Не в чате';
+    statusDiv.innerHTML = 'не в чате';
     showCreatePanel();
   });
   
   conn.on('error', (err) => {
     console.error('Connection error:', err);
-    addSystemMessage(`❌ Ошибка соединения: ${err.message}`);
+    addSystemMessage(`Ошибка соединения: ${err.message}`);
   });
 }
 
-// Отправка сообщения
 function sendMessage() {
   const text = messageInput.value.trim();
   if (text && currentConn && currentConn.open && isConnected) {
@@ -174,21 +166,17 @@ function sendMessage() {
   }
 }
 
-// Обработчики событий
 document.getElementById('create-room-btn').addEventListener('click', createRoom);
 sendButton.addEventListener('click', sendMessage);
 messageInput.addEventListener('keypress', (e) => {
   if (e.key === 'Enter' && !sendButton.disabled) sendMessage();
 });
 
-// Проверяем URL на наличие параметра room
 const urlParams = new URLSearchParams(window.location.search);
 const roomId = urlParams.get('room');
 if (roomId) {
-  // Если есть room в URL, значит нас пригласили — подключаемся
   joinRoom(roomId);
   showChatPanel();
 } else {
-  // Иначе показываем панель создания комнаты
   showCreatePanel();
 }
