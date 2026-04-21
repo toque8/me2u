@@ -86,7 +86,8 @@
 <input type="file" id="file-input" style="display:none" multiple>
 <input type="file" id="avatar-input" accept="image/*" style="display:none">
 <script>
-  (function(){
+  (function() {
+    // Элементы DOM
     const statusDiv = document.getElementById('status');
     const chatLog = document.getElementById('chat-log');
     const messageInput = document.getElementById('message-input');
@@ -120,40 +121,44 @@
     let trysteroRoom = null;
     let upeerjsPeer = null;
     let pingInterval = null;
+    let reconnectAttempts = 0;
+    let reconnectTimer = null;
     let incomingSound = null;
     let audioInitialized = false;
 
-    function initAudioOnFirstInteraction(){
-      if(audioInitialized) return;
+    function initAudioOnFirstInteraction() {
+      if (audioInitialized) return;
       incomingSound = new Audio('1.mp3');
       incomingSound.load();
       audioInitialized = true;
+      console.log('Звук инициализирован');
     }
-    function playIncomingSound(){
-      if(!audioInitialized) initAudioOnFirstInteraction();
-      if(incomingSound){
+    function playIncomingSound() {
+      if (!audioInitialized) initAudioOnFirstInteraction();
+      if (incomingSound) {
         incomingSound.currentTime = 0;
-        incomingSound.play().catch(e=>console.log(e));
+        incomingSound.play().catch(e => console.log('Автовоспроизведение заблокировано', e));
       }
     }
-    function bindAudioInit(){
-      [messageInput, sendButton, fileAttachBtn, voiceRecordBtn, createRoomBtn].forEach(el=>{
-        if(el) el.addEventListener('click', initAudioOnFirstInteraction, {once:true});
+    function bindAudioInit() {
+      [messageInput, sendButton, fileAttachBtn, voiceRecordBtn, createRoomBtn].forEach(el => {
+        if (el) el.addEventListener('click', initAudioOnFirstInteraction, { once: true });
       });
     }
 
-    function addSystemMessage(text){
+    function addSystemMessage(text) {
       const div = document.createElement('div');
       div.className = 'system-message';
       div.textContent = text;
       chatLog.appendChild(div);
-      div.scrollIntoView({behavior:'smooth',block:'end'});
+      div.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
-    function addMessageToUI(obj){
+
+    function addMessageToUI(obj) {
       const div = document.createElement('div');
       div.className = `message ${obj.isMy ? 'outgoing' : 'incoming'}`;
       div.setAttribute('data-id', obj.id);
-      if(!obj.isMy){
+      if (!obj.isMy) {
         const av = document.createElement('img');
         av.className = 'message-avatar';
         av.src = peerAvatar || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%238e8e93'%3E%3Cpath d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'/%3E%3C/svg%3E";
@@ -161,8 +166,8 @@
       }
       const content = document.createElement('div');
       content.className = 'message-content';
-      if(obj.type === 'text') content.textContent = obj.text;
-      else if(obj.type === 'file'){
+      if (obj.type === 'text') content.textContent = obj.text;
+      else if (obj.type === 'file') {
         const wrap = document.createElement('div');
         wrap.className = 'file-message';
         const a = document.createElement('a');
@@ -172,7 +177,7 @@
         a.target = '_blank';
         wrap.appendChild(a);
         content.appendChild(wrap);
-      }else if(obj.type === 'voice'){
+      } else if (obj.type === 'voice') {
         const wrap = document.createElement('div');
         wrap.className = 'voice-message';
         const audio = document.createElement('audio');
@@ -183,239 +188,301 @@
       }
       div.appendChild(content);
       chatLog.appendChild(div);
-      div.scrollIntoView({behavior:'smooth',block:'end'});
+      div.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
-    function saveHistory(){ if(currentRoomId) localStorage.setItem(`chat_history_${currentRoomId}`, JSON.stringify(messagesHistory)); }
-    function loadHistory(){
-      if(!currentRoomId) return;
-      const saved = localStorage.getItem(`chat_history_${currentRoomId}`);
-      if(saved){
-        try{
-          messagesHistory = JSON.parse(saved);
-          while(chatLog.firstChild) chatLog.removeChild(chatLog.firstChild);
-          messagesHistory.forEach(msg=>addMessageToUI(msg));
-        }catch(e){}
+
+    function saveHistory() {
+      if (!currentRoomId) {
+        console.warn('saveHistory: нет roomId');
+        return;
+      }
+      try {
+        localStorage.setItem(`chat_history_${currentRoomId}`, JSON.stringify(messagesHistory));
+        console.log(`История сохранена, ${messagesHistory.length} сообщений`);
+      } catch(e) {
+        console.error('Ошибка сохранения истории', e);
       }
     }
-    function addToHistory(msg){ messagesHistory.push(msg); saveHistory(); }
+    function loadHistory() {
+      if (!currentRoomId) return;
+      const saved = localStorage.getItem(`chat_history_${currentRoomId}`);
+      if (saved) {
+        try {
+          messagesHistory = JSON.parse(saved);
+          console.log(`История загружена, ${messagesHistory.length} сообщений`);
+          while (chatLog.firstChild) chatLog.removeChild(chatLog.firstChild);
+          messagesHistory.forEach(msg => addMessageToUI(msg));
+        } catch(e) {
+          console.error('Ошибка парсинга истории', e);
+        }
+      } else {
+        console.log('Нет сохранённой истории для комнаты', currentRoomId);
+      }
+    }
+    function addToHistory(msg) {
+      messagesHistory.push(msg);
+      saveHistory();
+    }
 
-    function sendTextMessage(text){
-      if(!text.trim() || !currentConn || !isConnected){ if(!isConnected) addSystemMessage('Нет соединения'); return; }
-      const id = Date.now()+'-'+Math.random().toString(36);
-      const msg = {id, type:'text', text, senderId:myPeerId, timestamp:Date.now(), isMy:true};
-      if(currentStrategy==='peerjs' && currentConn.open) currentConn.send({type:'message', data:msg});
-      else if(currentStrategy==='trystero' && sendMessageCallback) sendMessageCallback(msg);
-      else if(currentStrategy==='upeerjs' && upeerjsPeer) upeerjsPeer.send({type:'message', data:msg});
+    function sendTextMessage(text) {
+      if (!text.trim() || !currentConn || !isConnected) {
+        if (!isConnected) addSystemMessage('Нет соединения');
+        return;
+      }
+      const id = Date.now() + '-' + Math.random().toString(36);
+      const msg = {
+        id, type: 'text', text,
+        senderId: myPeerId,
+        timestamp: Date.now(),
+        isMy: true
+      };
+      if (currentStrategy === 'peerjs' && currentConn.open) currentConn.send({ type: 'message', data: msg });
+      else if (currentStrategy === 'trystero' && sendMessageCallback) sendMessageCallback(msg);
+      else if (currentStrategy === 'upeerjs' && upeerjsPeer) upeerjsPeer.send({ type: 'message', data: msg });
       addMessageToUI(msg);
       addToHistory(msg);
       messageInput.value = '';
     }
-    function sendFile(file){
-      if(!currentConn || !isConnected){ addSystemMessage('Нет соединения'); return; }
+
+    function sendFile(file) {
+      if (!currentConn || !isConnected) { addSystemMessage('Нет соединения'); return; }
       const reader = new FileReader();
-      reader.onload = ()=>{
-        const id = Date.now()+'-'+Math.random().toString(36);
-        const msg = {id, type:'file', name:file.name, mime:file.type, data:reader.result, senderId:myPeerId, timestamp:Date.now(), isMy:true};
-        if(currentStrategy==='peerjs' && currentConn.open) currentConn.send({type:'file_transfer', data:msg});
-        else if(currentStrategy==='trystero' && sendMessageCallback) sendMessageCallback({type:'file_transfer', data:msg});
-        else if(currentStrategy==='upeerjs' && upeerjsPeer) upeerjsPeer.send({type:'file_transfer', data:msg});
+      reader.onload = () => {
+        const id = Date.now() + '-' + Math.random().toString(36);
+        const msg = {
+          id, type: 'file', name: file.name, mime: file.type,
+          data: reader.result,
+          senderId: myPeerId, timestamp: Date.now(), isMy: true
+        };
+        if (currentStrategy === 'peerjs' && currentConn.open) currentConn.send({ type: 'file_transfer', data: msg });
+        else if (currentStrategy === 'trystero' && sendMessageCallback) sendMessageCallback({ type: 'file_transfer', data: msg });
+        else if (currentStrategy === 'upeerjs' && upeerjsPeer) upeerjsPeer.send({ type: 'file_transfer', data: msg });
         const url = URL.createObjectURL(file);
-        const display = {...msg, url, isMy:true};
+        const display = { ...msg, url, isMy: true };
         addMessageToUI(display);
         addToHistory(display);
       };
       reader.readAsArrayBuffer(file);
     }
-    function sendVoice(blob){
-      if(!currentConn || !isConnected) return;
+
+    function sendVoice(blob) {
+      if (!currentConn || !isConnected) return;
       const reader = new FileReader();
-      reader.onload = ()=>{
-        const id = Date.now()+'-'+Math.random().toString(36);
-        const msg = {id, type:'voice', data:reader.result, senderId:myPeerId, timestamp:Date.now(), isMy:true};
-        if(currentStrategy==='peerjs' && currentConn.open) currentConn.send({type:'voice_transfer', data:msg});
-        else if(currentStrategy==='trystero' && sendMessageCallback) sendMessageCallback({type:'voice_transfer', data:msg});
-        else if(currentStrategy==='upeerjs' && upeerjsPeer) upeerjsPeer.send({type:'voice_transfer', data:msg});
+      reader.onload = () => {
+        const id = Date.now() + '-' + Math.random().toString(36);
+        const msg = {
+          id, type: 'voice', data: reader.result,
+          senderId: myPeerId, timestamp: Date.now(), isMy: true
+        };
+        if (currentStrategy === 'peerjs' && currentConn.open) currentConn.send({ type: 'voice_transfer', data: msg });
+        else if (currentStrategy === 'trystero' && sendMessageCallback) sendMessageCallback({ type: 'voice_transfer', data: msg });
+        else if (currentStrategy === 'upeerjs' && upeerjsPeer) upeerjsPeer.send({ type: 'voice_transfer', data: msg });
         const url = URL.createObjectURL(blob);
-        const display = {...msg, url, isMy:true};
+        const display = { ...msg, url, isMy: true };
         addMessageToUI(display);
         addToHistory(display);
       };
       reader.readAsArrayBuffer(blob);
     }
-    function sendTyping(){
-      if(!currentConn || !isConnected) return;
-      if(currentStrategy==='peerjs' && currentConn.open) currentConn.send({type:'typing'});
-      else if(currentStrategy==='trystero' && sendMessageCallback) sendMessageCallback({type:'typing'});
-      else if(currentStrategy==='upeerjs' && upeerjsPeer) upeerjsPeer.send({type:'typing'});
+
+    function sendTyping() {
+      if (!currentConn || !isConnected) return;
+      if (currentStrategy === 'peerjs' && currentConn.open) currentConn.send({ type: 'typing' });
+      else if (currentStrategy === 'trystero' && sendMessageCallback) sendMessageCallback({ type: 'typing' });
+      else if (currentStrategy === 'upeerjs' && upeerjsPeer) upeerjsPeer.send({ type: 'typing' });
     }
-    function showTyping(){
+    function showTyping() {
       typingDiv.classList.remove('hidden');
-      if(typingTimeout) clearTimeout(typingTimeout);
-      typingTimeout = setTimeout(()=>typingDiv.classList.add('hidden'),2000);
+      if (typingTimeout) clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => typingDiv.classList.add('hidden'), 2000);
     }
-    function sendMyAvatar(){
-      if(currentConn && isConnected && myAvatar){
-        if(currentStrategy==='peerjs' && currentConn.open) currentConn.send({type:'avatar', data:myAvatar});
-        else if(currentStrategy==='trystero' && sendMessageCallback) sendMessageCallback({type:'avatar', data:myAvatar});
-        else if(currentStrategy==='upeerjs' && upeerjsPeer) upeerjsPeer.send({type:'avatar', data:myAvatar});
+
+    function sendMyAvatar() {
+      if (currentConn && isConnected && myAvatar) {
+        if (currentStrategy === 'peerjs' && currentConn.open) currentConn.send({ type: 'avatar', data: myAvatar });
+        else if (currentStrategy === 'trystero' && sendMessageCallback) sendMessageCallback({ type: 'avatar', data: myAvatar });
+        else if (currentStrategy === 'upeerjs' && upeerjsPeer) upeerjsPeer.send({ type: 'avatar', data: myAvatar });
       }
     }
-    function setControls(enabled){
+
+    function setControls(enabled) {
       messageInput.disabled = !enabled;
       sendButton.disabled = !enabled;
       fileAttachBtn.disabled = !enabled;
       voiceRecordBtn.disabled = !enabled;
-      if(enabled) messageInput.focus();
+      if (enabled) messageInput.focus();
     }
-    function startPing(){
-      if(pingInterval) clearInterval(pingInterval);
-      pingInterval = setInterval(()=>{
-        if(currentConn && isConnected && currentStrategy==='peerjs' && currentConn.open)
-          currentConn.send({type:'ping'});
-      },30000);
+
+    // Ping для стабильности
+    function startPing() {
+      if (pingInterval) clearInterval(pingInterval);
+      pingInterval = setInterval(() => {
+        if (currentConn && isConnected && currentStrategy === 'peerjs' && currentConn.open) {
+          currentConn.send({ type: 'ping' });
+        }
+      }, 30000);
     }
-    function stopPing(){ if(pingInterval) clearInterval(pingInterval); }
+    function stopPing() { if (pingInterval) clearInterval(pingInterval); }
 
     const ICE_CONFIG = {
-      iceServers:[
-        {urls:'stun:stun.l.google.com:19302'},
-        {urls:'stun:stun1.l.google.com:19302'},
-        {urls:'stun:stun.cloudflare.com:3478'},
-        {urls:'turn:turn.anyfirewall.com:443?transport=tcp', username:'webrtc', credential:'webrtc'},
-        {urls:'turn:turn2.anyfirewall.com:443?transport=tcp', username:'webrtc', credential:'webrtc'},
-        {urls:'turn:turn.merptv.com:443?transport=tcp', username:'webrtc', credential:'webrtc'},
-        {urls:'turn:freeturn.net:5349?transport=tcp', username:'free', credential:'free'},
-        {urls:'turn:freeturn.net:5349?transport=udp', username:'free', credential:'free'}
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun.cloudflare.com:3478' },
+        { urls: 'turn:turn.anyfirewall.com:443?transport=tcp', username: 'webrtc', credential: 'webrtc' },
+        { urls: 'turn:turn2.anyfirewall.com:443?transport=tcp', username: 'webrtc', credential: 'webrtc' },
+        { urls: 'turn:turn.merptv.com:443?transport=tcp', username: 'webrtc', credential: 'webrtc' },
+        { urls: 'turn:freeturn.net:5349?transport=tcp', username: 'free', credential: 'free' },
+        { urls: 'turn:freeturn.net:5349?transport=udp', username: 'free', credential: 'free' }
       ]
     };
     const PEER_SERVERS = [
-      {host:'0.peerjs.com', port:443, secure:true, path:'/'},
-      {host:'peerjs-server.herokuapp.com', port:443, secure:true, path:'/'},
-      {host:'my-peerjs-server.herokuapp.com', port:443, secure:true, path:'/'}
+      { host: '0.peerjs.com', port: 443, secure: true, path: '/' },
+      { host: 'peerjs-server.herokuapp.com', port: 443, secure: true, path: '/' },
+      { host: 'my-peerjs-server.herokuapp.com', port: 443, secure: true, path: '/' }
     ];
     let currentServerIndex = 0;
 
-    function tryPeerJSServer(roomId, isHost, onSuccess, onFail){
+    function tryPeerJSServer(roomId, isHost, onSuccess, onFail) {
       const sig = PEER_SERVERS[currentServerIndex];
       addSystemMessage(`PeerJS (${sig.host})...`);
-      const cfg = {...sig, config:ICE_CONFIG};
+      const cfg = { ...sig, config: ICE_CONFIG };
       let peer;
-      if(isHost) peer = new Peer(roomId, cfg);
+      if (isHost) peer = new Peer(roomId, cfg);
       else peer = new Peer(cfg);
-      const tm = setTimeout(()=>{ peer.destroy(); onFail(); },15000);
-      peer.on('open',(id)=>{
+      const tm = setTimeout(() => { peer.destroy(); onFail(); }, 15000);
+      peer.on('open', (id) => {
         clearTimeout(tm);
         myPeerId = id;
-        if(isHost){
-          peer.on('connection',(conn)=>{
+        if (isHost) {
+          peer.on('connection', (conn) => {
             setupPeerConn(conn);
             isConnected = true; setControls(true); statusDiv.textContent = 'соединено';
             sendMyAvatar();
             onSuccess();
           });
-        }else{
+        } else {
           const conn = peer.connect(roomId);
           setupPeerConn(conn);
           onSuccess();
         }
       });
-      peer.on('error',()=>{ clearTimeout(tm); peer.destroy(); onFail(); });
-      function setupPeerConn(conn){
+      peer.on('error', () => { clearTimeout(tm); peer.destroy(); onFail(); });
+
+      function setupPeerConn(conn) {
         currentStrategy = 'peerjs';
         currentConn = conn;
-        conn.on('open',()=>{
+        conn.on('open', () => {
           addSystemMessage('PeerJS соединение');
           isConnected = true; setControls(true); statusDiv.textContent = 'соединено';
-          if(!isHost) sendMyAvatar();
+          if (!isHost) sendMyAvatar();
           startPing();
         });
-        conn.on('data',(data)=>{
-          if(data.type === 'message'){
+        conn.on('data', (data) => {
+          if (data.type === 'message') {
             const msg = data.data;
-            if(msg.senderId !== myPeerId){
+            if (msg.senderId !== myPeerId) {
               playIncomingSound();
-              const inc = {...msg, isMy:false};
-              if(msg.type === 'text'){ addMessageToUI(inc); addToHistory(inc); }
-              else if(msg.type === 'file'){
-                const blob = new Blob([msg.data],{type:msg.mime});
+              const inc = { ...msg, isMy: false };
+              if (msg.type === 'text') { addMessageToUI(inc); addToHistory(inc); }
+              else if (msg.type === 'file') {
+                const blob = new Blob([msg.data], { type: msg.mime });
                 const url = URL.createObjectURL(blob);
-                addMessageToUI({...msg, url, isMy:false}); addToHistory({...msg, url, isMy:false});
-              }else if(msg.type === 'voice'){
-                const blob = new Blob([msg.data],{type:'audio/webm'});
+                addMessageToUI({ ...msg, url, isMy: false });
+                addToHistory({ ...msg, url, isMy: false });
+              } else if (msg.type === 'voice') {
+                const blob = new Blob([msg.data], { type: 'audio/webm' });
                 const url = URL.createObjectURL(blob);
-                addMessageToUI({...msg, url, isMy:false}); addToHistory({...msg, url, isMy:false});
+                addMessageToUI({ ...msg, url, isMy: false });
+                addToHistory({ ...msg, url, isMy: false });
               }
             }
-          }else if(data.type === 'typing') showTyping();
-          else if(data.type === 'file_transfer' || data.type === 'voice_transfer'){
+          } else if (data.type === 'typing') showTyping();
+          else if (data.type === 'file_transfer' || data.type === 'voice_transfer') {
             const msg = data.data;
-            if(msg.senderId !== myPeerId){
+            if (msg.senderId !== myPeerId) {
               playIncomingSound();
-              if(data.type === 'file_transfer'){
-                const blob = new Blob([msg.data],{type:msg.mime});
+              if (data.type === 'file_transfer') {
+                const blob = new Blob([msg.data], { type: msg.mime });
                 const url = URL.createObjectURL(blob);
-                addMessageToUI({...msg, url, isMy:false}); addToHistory({...msg, url, isMy:false});
-              }else{
-                const blob = new Blob([msg.data],{type:'audio/webm'});
+                addMessageToUI({ ...msg, url, isMy: false });
+                addToHistory({ ...msg, url, isMy: false });
+              } else {
+                const blob = new Blob([msg.data], { type: 'audio/webm' });
                 const url = URL.createObjectURL(blob);
-                addMessageToUI({...msg, url, isMy:false}); addToHistory({...msg, url, isMy:false});
+                addMessageToUI({ ...msg, url, isMy: false });
+                addToHistory({ ...msg, url, isMy: false });
               }
             }
-          }else if(data.type === 'avatar'){
+          } else if (data.type === 'avatar') {
             peerAvatar = data.data;
             const saved = [...messagesHistory];
-            while(chatLog.firstChild) chatLog.removeChild(chatLog.firstChild);
-            saved.forEach(m=>addMessageToUI(m));
+            while (chatLog.firstChild) chatLog.removeChild(chatLog.firstChild);
+            saved.forEach(m => addMessageToUI(m));
           }
         });
-        conn.on('close',()=>{
+        conn.on('close', () => {
           addSystemMessage('Соединение разорвано');
           isConnected = false; setControls(false); statusDiv.textContent = 'не в сети';
           peerAvatar = null; stopPing();
+          // Автоматическое переподключение для гостя
+          if (!isHost && currentRoomId) {
+            addSystemMessage('Попытка переподключения через 3 секунды...');
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(() => {
+              window.location.reload();
+            }, 3000);
+          }
         });
       }
     }
 
-    async function tryTrystero(roomId, isHost, onSuccess, onFail){
-      addSystemMessage('Trystero (BitTorrent)...');
-      try{
-        const {joinRoom} = await import('trystero');
-        const room = joinRoom({appId:'me2u-chat-v1', rtcConfig:ICE_CONFIG, trackerUrls:['wss://tracker.openwebtorrent.com','wss://tracker.webtorrent.dev','wss://tracker.btorrent.xyz']}, roomId, 'torrent');
+    async function tryTrystero(roomId, isHost, onSuccess, onFail) {
+      addSystemMessage('Trystero...');
+      try {
+        const { joinRoom } = await import('trystero');
+        const room = joinRoom({
+          appId: 'me2u-chat-v1',
+          rtcConfig: ICE_CONFIG,
+          trackerUrls: ['wss://tracker.openwebtorrent.com', 'wss://tracker.webtorrent.dev', 'wss://tracker.btorrent.xyz']
+        }, roomId, 'torrent');
         trysteroRoom = room;
         const [send, onMsg] = room.makeAction('chat');
         sendMessageCallback = send;
-        onMsg((data, peerId)=>{
-          if(data && data.type === 'message'){
+        onMsg((data, peerId) => {
+          if (data && data.type === 'message') {
             const msg = data.data;
-            if(msg.senderId !== myPeerId){
+            if (msg.senderId !== myPeerId) {
               playIncomingSound();
-              const inc = {...msg, isMy:false};
-              if(msg.type === 'text'){ addMessageToUI(inc); addToHistory(inc); }
+              const inc = { ...msg, isMy: false };
+              if (msg.type === 'text') { addMessageToUI(inc); addToHistory(inc); }
             }
-          }else if(data && data.type === 'typing') showTyping();
-          else if(data && (data.type === 'file_transfer' || data.type === 'voice_transfer')){
+          } else if (data && data.type === 'typing') showTyping();
+          else if (data && (data.type === 'file_transfer' || data.type === 'voice_transfer')) {
             const msg = data.data;
-            if(msg.senderId !== myPeerId){
+            if (msg.senderId !== myPeerId) {
               playIncomingSound();
-              if(data.type === 'file_transfer'){
-                const blob = new Blob([msg.data],{type:msg.mime});
+              if (data.type === 'file_transfer') {
+                const blob = new Blob([msg.data], { type: msg.mime });
                 const url = URL.createObjectURL(blob);
-                addMessageToUI({...msg, url, isMy:false}); addToHistory({...msg, url, isMy:false});
-              }else{
-                const blob = new Blob([msg.data],{type:'audio/webm'});
+                addMessageToUI({ ...msg, url, isMy: false });
+                addToHistory({ ...msg, url, isMy: false });
+              } else {
+                const blob = new Blob([msg.data], { type: 'audio/webm' });
                 const url = URL.createObjectURL(blob);
-                addMessageToUI({...msg, url, isMy:false}); addToHistory({...msg, url, isMy:false});
+                addMessageToUI({ ...msg, url, isMy: false });
+                addToHistory({ ...msg, url, isMy: false });
               }
             }
-          }else if(data && data.type === 'avatar'){
+          } else if (data && data.type === 'avatar') {
             peerAvatar = data.data;
             const saved = [...messagesHistory];
-            while(chatLog.firstChild) chatLog.removeChild(chatLog.firstChild);
-            saved.forEach(m=>addMessageToUI(m));
+            while (chatLog.firstChild) chatLog.removeChild(chatLog.firstChild);
+            saved.forEach(m => addMessageToUI(m));
           }
         });
-        room.onPeerJoin(()=>{
-          if(!isConnected){
+        room.onPeerJoin(() => {
+          if (!isConnected) {
             currentStrategy = 'trystero';
             isConnected = true; setControls(true); statusDiv.textContent = 'соединено';
             addSystemMessage('Trystero соединение');
@@ -423,128 +490,150 @@
             onSuccess();
           }
         });
-        room.onPeerLeave(()=>{
+        room.onPeerLeave(() => {
           addSystemMessage('Собеседник отключился');
           isConnected = false; setControls(false); statusDiv.textContent = 'не в сети';
           peerAvatar = null;
+          if (!isHost && currentRoomId) {
+            addSystemMessage('Попытка переподключения...');
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(() => window.location.reload(), 3000);
+          }
         });
-        setTimeout(()=>{ if(!isConnected) onFail(); },15000);
-      }catch(e){ onFail(); }
+        setTimeout(() => { if (!isConnected) onFail(); }, 15000);
+      } catch(e) { onFail(); }
     }
 
-    async function tryUPeerJS(roomId, isHost, onSuccess, onFail){
-      addSystemMessage('uPeerJS (MQTT)...');
-      try{
+    async function tryUPeerJS(roomId, isHost, onSuccess, onFail) {
+      addSystemMessage('uPeerJS...');
+      try {
         const UPeer = window.UPeer;
-        if(!UPeer) throw new Error();
-        const opts = {broker:'wss://test.mosquitto.org:8081', rtcConfig:ICE_CONFIG};
-        if(isHost){
+        if (!UPeer) throw new Error();
+        const opts = { broker: 'wss://test.mosquitto.org:8081', rtcConfig: ICE_CONFIG };
+        if (isHost) {
           upeerjsPeer = new UPeer(roomId, opts);
-          upeerjsPeer.on('connection',(conn)=>{
+          upeerjsPeer.on('connection', (conn) => {
             setupUPeer(conn);
             isConnected = true; setControls(true); statusDiv.textContent = 'соединено';
             sendMyAvatar();
             onSuccess();
           });
-        }else{
+        } else {
           upeerjsPeer = new UPeer(opts);
-          upeerjsPeer.on('open',()=>{
+          upeerjsPeer.on('open', () => {
             const conn = upeerjsPeer.connect(roomId);
             setupUPeer(conn);
             onSuccess();
           });
         }
-        upeerjsPeer.on('error',()=>onFail());
-        function setupUPeer(conn){
+        upeerjsPeer.on('error', () => onFail());
+        function setupUPeer(conn) {
           currentStrategy = 'upeerjs';
           currentConn = conn;
-          conn.on('open',()=>{
+          conn.on('open', () => {
             addSystemMessage('uPeerJS соединение');
             isConnected = true; setControls(true); statusDiv.textContent = 'соединено';
-            if(!isHost) sendMyAvatar();
+            if (!isHost) sendMyAvatar();
           });
-          conn.on('data',(data)=>{
-            if(data.type === 'message'){
+          conn.on('data', (data) => {
+            if (data.type === 'message') {
               const msg = data.data;
-              if(msg.senderId !== myPeerId){
+              if (msg.senderId !== myPeerId) {
                 playIncomingSound();
-                const inc = {...msg, isMy:false};
-                if(msg.type === 'text'){ addMessageToUI(inc); addToHistory(inc); }
+                const inc = { ...msg, isMy: false };
+                if (msg.type === 'text') { addMessageToUI(inc); addToHistory(inc); }
               }
-            }else if(data.type === 'typing') showTyping();
-            else if(data.type === 'file_transfer' || data.type === 'voice_transfer'){
+            } else if (data.type === 'typing') showTyping();
+            else if (data.type === 'file_transfer' || data.type === 'voice_transfer') {
               const msg = data.data;
-              if(msg.senderId !== myPeerId){
+              if (msg.senderId !== myPeerId) {
                 playIncomingSound();
-                if(data.type === 'file_transfer'){
-                  const blob = new Blob([msg.data],{type:msg.mime});
+                if (data.type === 'file_transfer') {
+                  const blob = new Blob([msg.data], { type: msg.mime });
                   const url = URL.createObjectURL(blob);
-                  addMessageToUI({...msg, url, isMy:false}); addToHistory({...msg, url, isMy:false});
-                }else{
-                  const blob = new Blob([msg.data],{type:'audio/webm'});
+                  addMessageToUI({ ...msg, url, isMy: false });
+                  addToHistory({ ...msg, url, isMy: false });
+                } else {
+                  const blob = new Blob([msg.data], { type: 'audio/webm' });
                   const url = URL.createObjectURL(blob);
-                  addMessageToUI({...msg, url, isMy:false}); addToHistory({...msg, url, isMy:false});
+                  addMessageToUI({ ...msg, url, isMy: false });
+                  addToHistory({ ...msg, url, isMy: false });
                 }
               }
-            }else if(data.type === 'avatar'){
+            } else if (data.type === 'avatar') {
               peerAvatar = data.data;
               const saved = [...messagesHistory];
-              while(chatLog.firstChild) chatLog.removeChild(chatLog.firstChild);
-              saved.forEach(m=>addMessageToUI(m));
+              while (chatLog.firstChild) chatLog.removeChild(chatLog.firstChild);
+              saved.forEach(m => addMessageToUI(m));
             }
           });
-          conn.on('close',()=>{
+          conn.on('close', () => {
             addSystemMessage('Соединение разорвано');
             isConnected = false; setControls(false); statusDiv.textContent = 'не в сети';
             peerAvatar = null;
+            if (!isHost && currentRoomId) {
+              addSystemMessage('Попытка переподключения...');
+              if (reconnectTimer) clearTimeout(reconnectTimer);
+              reconnectTimer = setTimeout(() => window.location.reload(), 3000);
+            }
           });
         }
-        setTimeout(()=>{ if(!isConnected) onFail(); },15000);
-      }catch(e){ onFail(); }
+        setTimeout(() => { if (!isConnected) onFail(); }, 15000);
+      } catch(e) { onFail(); }
     }
 
-    function connectWithFallback(roomId, isHost){
+    function connectWithFallback(roomId, isHost) {
       const strategies = [
-        {name:'peerjs', fn:cb=>tryPeerJSServer(roomId,isHost,cb,()=>next())},
-        {name:'trystero', fn:cb=>tryTrystero(roomId,isHost,cb,()=>next())},
-        {name:'upeerjs', fn:cb=>tryUPeerJS(roomId,isHost,cb,()=>next())}
+        { name: 'peerjs', fn: cb => tryPeerJSServer(roomId, isHost, cb, () => next()) },
+        { name: 'trystero', fn: cb => tryTrystero(roomId, isHost, cb, () => next()) },
+        { name: 'upeerjs', fn: cb => tryUPeerJS(roomId, isHost, cb, () => next()) }
       ];
-      let idx=0;
-      function next(){ idx++; if(idx<strategies.length) strategies[idx].fn(()=>addSystemMessage(`✅ ${strategies[idx].name}`)); else addSystemMessage('❌ Не удалось подключиться'); }
-      strategies[0].fn(()=>addSystemMessage(`✅ ${strategies[0].name}`));
+      let idx = 0;
+      function next() {
+        idx++;
+        if (idx < strategies.length) {
+          addSystemMessage(`Переключение на ${strategies[idx].name}...`);
+          strategies[idx].fn(() => addSystemMessage(`✅ ${strategies[idx].name}`));
+        } else {
+          addSystemMessage('❌ Не удалось подключиться. Попробуйте перезагрузить.');
+          statusDiv.textContent = 'ошибка';
+        }
+      }
+      strategies[0].fn(() => addSystemMessage(`✅ ${strategies[0].name}`));
     }
 
-    function createRoom(){
-      currentRoomId = Math.random().toString(36).substring(2,15)+Math.random().toString(36).substring(2,8);
-      const url = `${window.location.origin}${window.location.pathname}?room=${currentRoomId}`;
-      addSystemMessage(`Ссылка: ${url}`);
-      navigator.clipboard.writeText(url);
+    function createRoom() {
+      currentRoomId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 8);
+      const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${currentRoomId}`;
+      addSystemMessage(`Ссылка: ${inviteUrl}`);
+      navigator.clipboard.writeText(inviteUrl);
       statusDiv.textContent = `комната: ${currentRoomId.substring(0,8)}...`;
       createPanel.classList.add('hidden');
       chatPanel.classList.remove('hidden');
-      loadHistory();
+      loadHistory();   // загружаем историю, если есть
       connectWithFallback(currentRoomId, true);
     }
-    function joinRoom(roomId){
+
+    function joinRoom(roomId) {
       currentRoomId = roomId;
       statusDiv.textContent = 'подключение...';
       createPanel.classList.add('hidden');
       chatPanel.classList.remove('hidden');
-      loadHistory();
+      loadHistory();   // загружаем историю этой комнаты
       connectWithFallback(roomId, false);
     }
 
-    async function startVoiceRecording(){
-      if(isRecording) return;
-      try{
-        const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    async function startVoiceRecording() {
+      if (isRecording) return;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         mediaRecorder = new MediaRecorder(stream);
         audioChunks = [];
-        mediaRecorder.ondataavailable = e=>audioChunks.push(e.data);
-        mediaRecorder.onstop = ()=>{
-          const blob = new Blob(audioChunks, {type:'audio/webm'});
+        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(audioChunks, { type: 'audio/webm' });
           sendVoice(blob);
-          stream.getTracks().forEach(t=>t.stop());
+          stream.getTracks().forEach(t => t.stop());
           isRecording = false;
           voiceRecordBtn.style.background = 'var(--bg-input)';
         };
@@ -553,66 +642,66 @@
         voiceRecordBtn.style.background = 'red';
         addSystemMessage('Запись... нажмите ещё раз для отправки');
         voiceRecordBtn.onclick = stopVoiceRecording;
-      }catch(e){ addSystemMessage('Микрофон недоступен'); }
+      } catch(e) { addSystemMessage('Микрофон недоступен'); }
     }
-    function stopVoiceRecording(){
-      if(mediaRecorder && isRecording){
+    function stopVoiceRecording() {
+      if (mediaRecorder && isRecording) {
         mediaRecorder.stop();
         voiceRecordBtn.onclick = toggleVoiceRecording;
         voiceRecordBtn.style.background = 'var(--bg-input)';
       }
     }
-    function toggleVoiceRecording(){
-      if(!isConnected){ addSystemMessage('Нет соединения'); return; }
-      if(!isRecording) startVoiceRecording();
+    function toggleVoiceRecording() {
+      if (!isConnected) { addSystemMessage('Нет соединения'); return; }
+      if (!isRecording) startVoiceRecording();
       else stopVoiceRecording();
     }
 
-    function setTheme(theme){
+    function setTheme(theme) {
       currentTheme = theme;
-      if(theme==='light') document.body.classList.add('light');
+      if (theme === 'light') document.body.classList.add('light');
       else document.body.classList.remove('light');
-      themeToggle.textContent = theme==='light' ? '☀️' : '🌙';
+      themeToggle.textContent = theme === 'light' ? '☀️' : '🌙';
       localStorage.setItem('theme', theme);
-      const col = theme==='dark' ? '#ff9f6e' : '#e67e22';
+      const col = theme === 'dark' ? '#ff9f6e' : '#e67e22';
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="${col}"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`;
       let f = document.querySelector("link[rel*='icon']");
-      if(!f){ f=document.createElement('link'); f.rel='icon'; document.head.appendChild(f); }
-      f.href = 'data:image/svg+xml,'+encodeURIComponent(svg);
+      if (!f) { f = document.createElement('link'); f.rel = 'icon'; document.head.appendChild(f); }
+      f.href = 'data:image/svg+xml,' + encodeURIComponent(svg);
     }
-    function downloadHistory(){
-      if(messagesHistory.length===0){ addSystemMessage('Нет сообщений'); return; }
+    function downloadHistory() {
+      if (messagesHistory.length === 0) { addSystemMessage('Нет сообщений'); return; }
       let content = `me2u история ${new Date().toLocaleString()}\n\n`;
-      messagesHistory.forEach(m=>{
+      messagesHistory.forEach(m => {
         const sender = m.isMy ? 'Вы' : 'Собеседник';
         let txt = '';
-        if(m.type==='text') txt = m.text;
-        else if(m.type==='file') txt = `[Файл: ${m.name}]`;
-        else if(m.type==='voice') txt = '[Голосовое]';
+        if (m.type === 'text') txt = m.text;
+        else if (m.type === 'file') txt = `[Файл: ${m.name}]`;
+        else if (m.type === 'voice') txt = '[Голосовое]';
         content += `[${new Date(m.timestamp).toLocaleTimeString()}] ${sender}: ${txt}\n`;
       });
-      const blob = new Blob([content], {type:'text/plain'});
+      const blob = new Blob([content], { type: 'text/plain' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = `me2u_${currentRoomId}.txt`;
       a.click();
       URL.revokeObjectURL(a.href);
     }
-    function handleAvatarUpload(e){
+    function handleAvatarUpload(e) {
       const file = e.target.files[0];
-      if(file && file.type.startsWith('image/')){
+      if (file && file.type.startsWith('image/')) {
         const reader = new FileReader();
-        reader.onload = (ev)=>{
+        reader.onload = (ev) => {
           const img = new Image();
-          img.onload = ()=>{
+          img.onload = () => {
             const canvas = document.createElement('canvas');
             const sz = Math.min(img.width, img.height);
             canvas.width = canvas.height = 100;
             const ctx = canvas.getContext('2d');
             ctx.beginPath();
-            ctx.arc(50,50,50,0,2*Math.PI);
+            ctx.arc(50, 50, 50, 0, 2 * Math.PI);
             ctx.clip();
-            ctx.drawImage(img, (img.width-sz)/2, (img.height-sz)/2, sz, sz, 0, 0, 100, 100);
+            ctx.drawImage(img, (img.width - sz) / 2, (img.height - sz) / 2, sz, sz, 0, 0, 100, 100);
             const url = canvas.toDataURL();
             myAvatar = url;
             avatarImg.src = url;
@@ -624,29 +713,36 @@
         reader.readAsDataURL(file);
       }
     }
-    function loadAvatarFromStorage(){ if(myAvatar) avatarImg.src = myAvatar; }
+    function loadAvatarFromStorage() { if (myAvatar) avatarImg.src = myAvatar; }
 
-    function init(){
+    function init() {
       loadAvatarFromStorage();
       setTheme(currentTheme);
       bindAudioInit();
-      const urlp = new URLSearchParams(window.location.search);
-      const room = urlp.get('room');
-      if(room) joinRoom(room);
-      else { createPanel.classList.remove('hidden'); chatPanel.classList.add('hidden'); }
+      const urlParams = new URLSearchParams(window.location.search);
+      const roomParam = urlParams.get('room');
+      if (roomParam) {
+        joinRoom(roomParam);
+      } else {
+        createPanel.classList.remove('hidden');
+        chatPanel.classList.add('hidden');
+      }
       createRoomBtn.addEventListener('click', createRoom);
-      sendButton.addEventListener('click', ()=>sendTextMessage(messageInput.value));
-      messageInput.addEventListener('keypress', e=>{
-        if(e.key==='Enter' && !sendButton.disabled) sendTextMessage(messageInput.value);
-        if(isConnected) sendTyping();
+      sendButton.addEventListener('click', () => sendTextMessage(messageInput.value));
+      messageInput.addEventListener('keypress', e => {
+        if (e.key === 'Enter' && !sendButton.disabled) sendTextMessage(messageInput.value);
+        if (isConnected) sendTyping();
       });
-      messageInput.addEventListener('input', ()=>{ if(isConnected) sendTyping(); });
-      fileAttachBtn.addEventListener('click', ()=>fileInput.click());
-      fileInput.addEventListener('change', e=>{ if(e.target.files.length) for(let f of e.target.files) sendFile(f); fileInput.value=''; });
+      messageInput.addEventListener('input', () => { if (isConnected) sendTyping(); });
+      fileAttachBtn.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', e => {
+        if (e.target.files.length) for (let f of e.target.files) sendFile(f);
+        fileInput.value = '';
+      });
       voiceRecordBtn.addEventListener('click', toggleVoiceRecording);
-      themeToggle.addEventListener('click', ()=>setTheme(currentTheme==='dark'?'light':'dark'));
+      themeToggle.addEventListener('click', () => setTheme(currentTheme === 'dark' ? 'light' : 'dark'));
       downloadBtn.addEventListener('click', downloadHistory);
-      avatarImg.addEventListener('click', ()=>avatarInput.click());
+      avatarImg.addEventListener('click', () => avatarInput.click());
       avatarInput.addEventListener('change', handleAvatarUpload);
     }
     init();
